@@ -1,5 +1,5 @@
 # =========================
-# MODULE 3 + 4 (FINAL STABLE VERSION - OPTIMIZED)
+# MODULE 3 + 4 (FINAL STABLE VERSION - RAIN BASED OPTIMIZED)
 # =========================
 
 import re
@@ -13,7 +13,7 @@ import time
 
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
-from shapely.geometry import LineString  # ✅ TAMBAHAN
+from shapely.geometry import LineString
 
 # =========================
 # CONSTANTS
@@ -67,7 +67,7 @@ def normalize_date(raw):
 
 
 # =========================
-# 🔥 TAMBAHAN (TIDAK MENGGANGGU SYSTEM)
+# ROUTE SAMPLING
 # =========================
 def generate_3_points_along_route(polyline):
 
@@ -87,7 +87,28 @@ def generate_3_points_along_route(polyline):
 
 
 # =========================
-# GSMAP (RESOURCE CACHE)
+# 🔥 WEATHER CLASSIFICATION (RAIN ONLY)
+# =========================
+def classify_weather_from_rain(rain):
+
+    if rain is None:
+        return "Unknown"
+
+    if rain < 0.5:
+        return "Clear"   # nanti bisa dipecah manual
+
+    elif rain < 5:
+        return "Light Rain"
+
+    elif rain < 10:
+        return "Moderate Rain"
+
+    else:
+        return "Heavy Rain"
+
+
+# =========================
+# GSMAP
 # =========================
 @st.cache_resource(ttl=3600)
 def load_gsmap_cached(dt):
@@ -124,7 +145,7 @@ def load_gsmap_cached(dt):
 
 
 # =========================
-# LOAD DATASET (RESOURCE CACHE)
+# LOAD DATASET
 # =========================
 @st.cache_resource(ttl=3600)
 def load_datasets_cached(dt_input):
@@ -204,29 +225,17 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
             if "time" in da.dims:
                 da = da.sel(time=t, method="nearest")
 
-            lat_name = None
-            for name in ["lat", "latitude"]:
-                if name in da.coords:
-                    lat_name = name
-                    break
-
-            lon_name = None
-            for name in ["lon", "longitude"]:
-                if name in da.coords:
-                    lon_name = name
-                    break
+            lat_name = next((n for n in ["lat","latitude"] if n in da.coords), None)
+            lon_name = next((n for n in ["lon","longitude"] if n in da.coords), None)
 
             if lat_name and lon_name:
-
                 lat_vals = da[lat_name].values
                 lon_vals = da[lon_name].values
 
                 lat_idx = np.abs(lat_vals - lat).argmin()
                 lon_idx = np.abs(lon_vals - lon).argmin()
 
-                da_point = da.isel({lat_name: lat_idx, lon_name: lon_idx})
-
-                rain_val = float(da_point.values)
+                rain_val = float(da.isel({lat_name: lat_idx, lon_name: lon_idx}).values)
 
                 if np.isnan(rain_val):
                     rain_val = None
@@ -255,7 +264,7 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 
 
 # =========================
-# MAIN PROCESS (UPDATED ONLY HERE)
+# MAIN PROCESS
 # =========================
 def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain=None):
 
@@ -277,7 +286,6 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
 
         t0 = dt_utc0 + timedelta(hours=i * 6)
 
-        # 🔥 PERUBAHAN UTAMA
         sample_points = generate_3_points_along_route(route)
 
         samples = []
@@ -289,9 +297,22 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
             sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
             samples.append(sample)
 
+        # 🔥 DOMINANT LOGIC
+        rain_vals = [
+            s["rain"]["precip"]
+            for s in samples
+            if s["rain"]["precip"] is not None
+        ]
+
+        rain_max = max(rain_vals) if rain_vals else None
+
+        weather = classify_weather_from_rain(rain_max)
+
         segments.append({
             "interval": f"T{i*6}-T{(i+1)*6}",
-            "samples": samples
+            "samples": samples,
+            "rain_max": rain_max,
+            "weather": weather
         })
 
     return {
