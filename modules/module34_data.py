@@ -1,5 +1,5 @@
 # =========================
-# MODULE 3 + 4 (FINAL STABLE VERSION - ADVANCED OPTIMIZED)
+# MODULE 3 + 4 (FINAL STABLE VERSION - OPTIMIZED)
 # =========================
 
 import re
@@ -10,12 +10,10 @@ import ftplib
 import tempfile
 import os
 import time
-import math  # ✅ TAMBAHAN
 
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
 from shapely.geometry import LineString  # ✅ TAMBAHAN
-
 
 # =========================
 # CONSTANTS
@@ -25,7 +23,6 @@ TZ_OFFSET = {
     "WITA": 8,
     "WIT": 9
 }
-
 
 # =========================
 # DATE NORMALIZATION
@@ -70,7 +67,7 @@ def normalize_date(raw):
 
 
 # =========================
-# 🔥 ROUTE SAMPLING
+# 🔥 TAMBAHAN: ROUTE SAMPLING
 # =========================
 def generate_3_points_along_route(polyline):
 
@@ -90,42 +87,7 @@ def generate_3_points_along_route(polyline):
 
 
 # =========================
-# 🔥 DIRECTION LOGIC
-# =========================
-def uv_to_direction_deg(u, v):
-    if u is None or v is None:
-        return None
-    return (math.degrees(math.atan2(-u, -v)) + 360) % 360
-
-
-def circular_mean_direction(degrees_list):
-    if not degrees_list:
-        return None
-
-    sin_sum = sum(math.sin(math.radians(d)) for d in degrees_list)
-    cos_sum = sum(math.cos(math.radians(d)) for d in degrees_list)
-
-    if sin_sum == 0 and cos_sum == 0:
-        return None
-
-    mean = math.degrees(math.atan2(sin_sum, cos_sum))
-    return (mean + 360) % 360
-
-
-def limit_direction_range(start_deg, end_deg, max_span=90):
-    if start_deg is None or end_deg is None:
-        return None, None
-
-    span = (end_deg - start_deg) % 360
-
-    if span <= max_span:
-        return start_deg, end_deg
-
-    return start_deg, (start_deg + max_span) % 360
-
-
-# =========================
-# 🔥 DOMINANT ENGINE
+# 🔥 TAMBAHAN: DOMINANT ENGINE
 # =========================
 def summarize_segment(samples):
 
@@ -134,31 +96,19 @@ def summarize_segment(samples):
     wave_vals = []
     rain_vals = []
 
-    wind_dirs = []
-    current_dirs = []
-
     for s in samples:
 
         # WIND
         u = s["wind"]["u"]
         v = s["wind"]["v"]
-
         if u is not None and v is not None:
             wind_speeds.append((u**2 + v**2)**0.5)
-
-            d = uv_to_direction_deg(u, v)
-            if d is not None:
-                wind_dirs.append(d)
 
         # CURRENT
         u = s["current"]["u"]
         v = s["current"]["v"]
-
         if u is not None and v is not None:
             current_speeds.append((u**2 + v**2)**0.5)
-
-            d = (math.degrees(math.atan2(u, v)) + 360) % 360
-            current_dirs.append(d)
 
         # WAVE
         if s["wave"]["hs"] is not None:
@@ -168,26 +118,11 @@ def summarize_segment(samples):
         if s["rain"]["precip"] is not None:
             rain_vals.append(s["rain"]["precip"])
 
-    # WIND DIRECTION
-    wind_start = wind_dirs[0] if wind_dirs else None
-    wind_mean = circular_mean_direction(wind_dirs)
-    wind_start, wind_end = limit_direction_range(wind_start, wind_mean)
-
-    # CURRENT DIRECTION
-    cur_start = current_dirs[0] if current_dirs else None
-    cur_mean = circular_mean_direction(current_dirs)
-    cur_start, cur_end = limit_direction_range(cur_start, cur_mean)
-
     return {
         "wind_median": float(np.median(wind_speeds)) if wind_speeds else None,
         "current_median": float(np.median(current_speeds)) if current_speeds else None,
         "wave_max": max(wave_vals) if wave_vals else None,
-        "rain_max": max(rain_vals) if rain_vals else None,
-
-        "wind_dir_start": wind_start,
-        "wind_dir_end": wind_end,
-        "current_dir_start": cur_start,
-        "current_dir_end": cur_end,
+        "rain_max": max(rain_vals) if rain_vals else None
     }
 
 
@@ -379,6 +314,7 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
 
         t0 = dt_utc0 + timedelta(hours=i * 6)
 
+        # 🔥 sampling rute
         sample_points = generate_3_points_along_route(route)
 
         samples = []
@@ -390,6 +326,7 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
             sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
             samples.append(sample)
 
+        # 🔥 dominant summary
         summary = summarize_segment(samples)
 
         segments.append({
