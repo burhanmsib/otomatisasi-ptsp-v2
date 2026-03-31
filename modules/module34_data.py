@@ -67,7 +67,7 @@ def normalize_date(raw):
 
 
 # =========================
-# 🔥 TAMBAHAN (TIDAK MENGGANGGU SYSTEM)
+# 🔥 TAMBAHAN: ROUTE SAMPLING
 # =========================
 def generate_3_points_along_route(polyline):
 
@@ -84,6 +84,46 @@ def generate_3_points_along_route(polyline):
         points.append((p.y, p.x))
 
     return points
+
+
+# =========================
+# 🔥 TAMBAHAN: DOMINANT ENGINE
+# =========================
+def summarize_segment(samples):
+
+    wind_speeds = []
+    current_speeds = []
+    wave_vals = []
+    rain_vals = []
+
+    for s in samples:
+
+        # WIND
+        u = s["wind"]["u"]
+        v = s["wind"]["v"]
+        if u is not None and v is not None:
+            wind_speeds.append((u**2 + v**2)**0.5)
+
+        # CURRENT
+        u = s["current"]["u"]
+        v = s["current"]["v"]
+        if u is not None and v is not None:
+            current_speeds.append((u**2 + v**2)**0.5)
+
+        # WAVE
+        if s["wave"]["hs"] is not None:
+            wave_vals.append(s["wave"]["hs"])
+
+        # RAIN
+        if s["rain"]["precip"] is not None:
+            rain_vals.append(s["rain"]["precip"])
+
+    return {
+        "wind_median": float(np.median(wind_speeds)) if wind_speeds else None,
+        "current_median": float(np.median(current_speeds)) if current_speeds else None,
+        "wave_max": max(wave_vals) if wave_vals else None,
+        "rain_max": max(rain_vals) if rain_vals else None
+    }
 
 
 # =========================
@@ -218,11 +258,8 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 
             if lat_name and lon_name:
 
-                lat_vals = da[lat_name].values
-                lon_vals = da[lon_name].values
-
-                lat_idx = np.abs(lat_vals - lat).argmin()
-                lon_idx = np.abs(lon_vals - lon).argmin()
+                lat_idx = np.abs(da[lat_name].values - lat).argmin()
+                lon_idx = np.abs(da[lon_name].values - lon).argmin()
 
                 da_point = da.isel({lat_name: lat_idx, lon_name: lon_idx})
 
@@ -255,7 +292,7 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 
 
 # =========================
-# MAIN PROCESS (UPDATED ONLY HERE)
+# MAIN PROCESS
 # =========================
 def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain=None):
 
@@ -277,7 +314,7 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
 
         t0 = dt_utc0 + timedelta(hours=i * 6)
 
-        # 🔥 PERUBAHAN UTAMA
+        # 🔥 sampling rute
         sample_points = generate_3_points_along_route(route)
 
         samples = []
@@ -289,9 +326,13 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
             sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
             samples.append(sample)
 
+        # 🔥 dominant summary
+        summary = summarize_segment(samples)
+
         segments.append({
             "interval": f"T{i*6}-T{(i+1)*6}",
-            "samples": samples
+            "samples": samples,
+            "summary": summary
         })
 
     return {
