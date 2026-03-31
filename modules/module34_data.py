@@ -1,5 +1,5 @@
 # =========================
-# MODULE 3 + 4 (FINAL HYBRID - FULL VERSION)
+# MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED)
 # =========================
 
 import re
@@ -69,7 +69,7 @@ def normalize_date(raw):
 
 
 # =========================
-# 🔥 ROUTE SAMPLING
+# ROUTE SAMPLING
 # =========================
 def generate_3_points_along_route(polyline):
 
@@ -89,7 +89,7 @@ def generate_3_points_along_route(polyline):
 
 
 # =========================
-# 🔥 WEATHER CLASSIFICATION (RAIN BASED)
+# WEATHER CLASSIFICATION
 # =========================
 def classify_weather_from_rain(rain):
 
@@ -110,7 +110,7 @@ def classify_weather_from_rain(rain):
 
 
 # =========================
-# GSMAP (RESOURCE CACHE)
+# GSMAP (CACHE)
 # =========================
 @st.cache_resource(ttl=3600)
 def load_gsmap_cached(dt):
@@ -147,7 +147,7 @@ def load_gsmap_cached(dt):
 
 
 # =========================
-# LOAD DATASET (RESOURCE CACHE)
+# LOAD DATASET (CACHE)
 # =========================
 @st.cache_resource(ttl=3600)
 def load_datasets_cached(dt_input):
@@ -219,7 +219,6 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
     rain_val = None
 
     if ds_rain is not None:
-
         try:
             var = list(ds_rain.data_vars)[0]
             da = ds_rain[var]
@@ -231,7 +230,6 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
             lon_name = next((n for n in ["lon","longitude"] if n in da.coords), None)
 
             if lat_name and lon_name:
-
                 lat_idx = np.abs(da[lat_name].values - lat).argmin()
                 lon_idx = np.abs(da[lon_name].values - lon).argmin()
 
@@ -264,7 +262,7 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 
 
 # =========================
-# MAIN PROCESS
+# MAIN PROCESS (FIXED)
 # =========================
 def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain=None):
 
@@ -281,13 +279,22 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
     route = [(p[0], p[1]) for p in polyline]
 
     segments = []
+    n = len(route)
 
     for i in range(4):
 
         t0 = dt_utc0 + timedelta(hours=i * 6)
 
-        # 🔥 3 titik sepanjang rute
-        sample_points = generate_3_points_along_route(route)
+        # 🔥 SEGMENT BASED
+        start_idx = int(i * (n-1) / 4)
+        end_idx   = int((i+1) * (n-1) / 4) + 1
+
+        segment_route = route[start_idx:end_idx]
+
+        if len(segment_route) < 2:
+            segment_route = route
+
+        sample_points = generate_3_points_along_route(segment_route)
 
         samples = []
         rain_vals = []
@@ -302,7 +309,6 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
             if sample["rain"]["precip"] is not None:
                 rain_vals.append(sample["rain"]["precip"])
 
-        # 🔥 dominant weather
         rain_max = max(rain_vals) if rain_vals else None
         weather = classify_weather_from_rain(rain_max)
 
