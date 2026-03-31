@@ -1,5 +1,5 @@
 # =========================
-# MODULE 3 + 4 (FINAL STABLE VERSION)
+# MODULE 3 + 4 (FINAL STABLE VERSION - OPTIMIZED)
 # =========================
 
 import re
@@ -13,6 +13,7 @@ import time
 
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
+from shapely.geometry import LineString  # ✅ TAMBAHAN
 
 # =========================
 # CONSTANTS
@@ -64,6 +65,27 @@ def normalize_date(raw):
     except:
         return None
 
+
+# =========================
+# 🔥 TAMBAHAN (TIDAK MENGGANGGU SYSTEM)
+# =========================
+def generate_3_points_along_route(polyline):
+
+    if not polyline or len(polyline) < 2:
+        return polyline
+
+    line = LineString([(lon, lat) for lat, lon in polyline])
+
+    fractions = [0.0, 0.5, 1.0]
+    points = []
+
+    for f in fractions:
+        p = line.interpolate(f, normalized=True)
+        points.append((p.y, p.x))
+
+    return points
+
+
 # =========================
 # GSMAP (RESOURCE CACHE)
 # =========================
@@ -100,6 +122,7 @@ def load_gsmap_cached(dt):
         st.warning(f"GSMAP gagal load: {e}")
         return None
 
+
 # =========================
 # LOAD DATASET (RESOURCE CACHE)
 # =========================
@@ -115,7 +138,6 @@ def load_datasets_cached(dt_input):
 
     YYYY, MM, DD = dt.strftime("%Y"), dt.strftime("%m"), dt.strftime("%d")
 
-    # WW3
     ds_wave = None
     for url in [
         f"https://{user}:{password}@maritim.bmkg.go.id/opendap/ww3gfs/{YYYY}/{MM}/w3g_hires_{YYYY}{MM}{DD}_1200.nc",
@@ -127,7 +149,6 @@ def load_datasets_cached(dt_input):
         except:
             time.sleep(1)
 
-    # FVCOM
     ds_cur = None
     for url in [
         f"https://{user}:{password}@maritim.bmkg.go.id/opendap/fvcom/{YYYY}/{MM}/InaFlows_{YYYY}{MM}{DD}_1200.nc",
@@ -142,6 +163,7 @@ def load_datasets_cached(dt_input):
     ds_rain = load_gsmap_cached(dt)
 
     return ds_wave, ds_cur, ds_rain
+
 
 # =========================
 # SAFE EXTRACT
@@ -165,6 +187,7 @@ def safe_extract(ds, var, t, lat, lon, depth=None):
     except:
         return 0.0
 
+
 # =========================
 # WEATHER EXTRACTION
 # =========================
@@ -178,15 +201,9 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
             var = list(ds_rain.data_vars)[0]
             da = ds_rain[var]
 
-            # ======================
-            # HANDLE TIME
-            # ======================
             if "time" in da.dims:
                 da = da.sel(time=t, method="nearest")
 
-            # ======================
-            # DETECT NAMA KOORDINAT
-            # ======================
             lat_name = None
             for name in ["lat", "latitude"]:
                 if name in da.coords:
@@ -199,9 +216,6 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
                     lon_name = name
                     break
 
-            # ======================
-            # AMBIL NILAI TERDEKAT
-            # ======================
             if lat_name and lon_name:
 
                 lat_vals = da[lat_name].values
@@ -239,8 +253,9 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
         }
     }
 
+
 # =========================
-# MAIN PROCESS
+# MAIN PROCESS (UPDATED ONLY HERE)
 # =========================
 def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain=None):
 
@@ -260,17 +275,23 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
 
     for i in range(4):
 
-        lat, lon = route[min(i, len(route)-1)]
-
         t0 = dt_utc0 + timedelta(hours=i * 6)
-        t3 = t0 + timedelta(hours=3)
 
-        sample0 = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t0, lat, lon)
-        sample3 = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t3, lat, lon)
+        # 🔥 PERUBAHAN UTAMA
+        sample_points = generate_3_points_along_route(route)
+
+        samples = []
+
+        for j, (lat, lon) in enumerate(sample_points):
+
+            t = t0 + timedelta(hours=j * 3)
+
+            sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
+            samples.append(sample)
 
         segments.append({
             "interval": f"T{i*6}-T{(i+1)*6}",
-            "samples": [sample0, sample3]
+            "samples": samples
         })
 
     return {
