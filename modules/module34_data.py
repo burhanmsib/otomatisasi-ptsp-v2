@@ -1,5 +1,5 @@
 # =========================
-# MODULE 3 + 4 (FINAL STABLE VERSION - RAIN BASED OPTIMIZED)
+# MODULE 3 + 4 (FINAL HYBRID - FULL VERSION)
 # =========================
 
 import re
@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from dateutil import parser
 from shapely.geometry import LineString
 
+
 # =========================
 # CONSTANTS
 # =========================
@@ -23,6 +24,7 @@ TZ_OFFSET = {
     "WITA": 8,
     "WIT": 9
 }
+
 
 # =========================
 # DATE NORMALIZATION
@@ -67,7 +69,7 @@ def normalize_date(raw):
 
 
 # =========================
-# ROUTE SAMPLING
+# 🔥 ROUTE SAMPLING
 # =========================
 def generate_3_points_along_route(polyline):
 
@@ -87,7 +89,7 @@ def generate_3_points_along_route(polyline):
 
 
 # =========================
-# 🔥 WEATHER CLASSIFICATION (RAIN ONLY)
+# 🔥 WEATHER CLASSIFICATION (RAIN BASED)
 # =========================
 def classify_weather_from_rain(rain):
 
@@ -95,7 +97,7 @@ def classify_weather_from_rain(rain):
         return "Unknown"
 
     if rain < 0.5:
-        return "Clear"   # nanti bisa dipecah manual
+        return "Clear"
 
     elif rain < 5:
         return "Light Rain"
@@ -108,7 +110,7 @@ def classify_weather_from_rain(rain):
 
 
 # =========================
-# GSMAP
+# GSMAP (RESOURCE CACHE)
 # =========================
 @st.cache_resource(ttl=3600)
 def load_gsmap_cached(dt):
@@ -145,7 +147,7 @@ def load_gsmap_cached(dt):
 
 
 # =========================
-# LOAD DATASET
+# LOAD DATASET (RESOURCE CACHE)
 # =========================
 @st.cache_resource(ttl=3600)
 def load_datasets_cached(dt_input):
@@ -229,11 +231,9 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
             lon_name = next((n for n in ["lon","longitude"] if n in da.coords), None)
 
             if lat_name and lon_name:
-                lat_vals = da[lat_name].values
-                lon_vals = da[lon_name].values
 
-                lat_idx = np.abs(lat_vals - lat).argmin()
-                lon_idx = np.abs(lon_vals - lon).argmin()
+                lat_idx = np.abs(da[lat_name].values - lat).argmin()
+                lon_idx = np.abs(da[lon_name].values - lon).argmin()
 
                 rain_val = float(da.isel({lat_name: lat_idx, lon_name: lon_idx}).values)
 
@@ -286,9 +286,11 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
 
         t0 = dt_utc0 + timedelta(hours=i * 6)
 
+        # 🔥 3 titik sepanjang rute
         sample_points = generate_3_points_along_route(route)
 
         samples = []
+        rain_vals = []
 
         for j, (lat, lon) in enumerate(sample_points):
 
@@ -297,15 +299,11 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
             sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
             samples.append(sample)
 
-        # 🔥 DOMINANT LOGIC
-        rain_vals = [
-            s["rain"]["precip"]
-            for s in samples
-            if s["rain"]["precip"] is not None
-        ]
+            if sample["rain"]["precip"] is not None:
+                rain_vals.append(sample["rain"]["precip"])
 
+        # 🔥 dominant weather
         rain_max = max(rain_vals) if rain_vals else None
-
         weather = classify_weather_from_rain(rain_max)
 
         segments.append({
