@@ -1,5 +1,5 @@
 # =========================
-# MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED)
+# MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED + RETRY)
 # =========================
 
 import re
@@ -14,6 +14,28 @@ import time
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
 from shapely.geometry import LineString
+
+
+# =========================
+# 🔥 TAMBAHAN: TIMEOUT
+# =========================
+os.environ["OPENDAP_TIMEOUT"] = "60"
+
+
+# =========================
+# 🔥 TAMBAHAN: RETRY FUNCTION
+# =========================
+def open_dataset_with_retry(url, max_try=3, delay=2):
+
+    for i in range(max_try):
+        try:
+            ds = xr.open_dataset(url)
+            return ds
+        except Exception as e:
+            print(f"[Retry {i+1}] gagal buka: {url}")
+            time.sleep(delay)
+
+    return None
 
 
 # =========================
@@ -147,7 +169,7 @@ def load_gsmap_cached(dt):
 
 
 # =========================
-# LOAD DATASET (CACHE)
+# LOAD DATASET (RETRY VERSION)
 # =========================
 @st.cache_resource(ttl=3600)
 def load_datasets_cached(dt_input):
@@ -161,28 +183,27 @@ def load_datasets_cached(dt_input):
 
     YYYY, MM, DD = dt.strftime("%Y"), dt.strftime("%m"), dt.strftime("%d")
 
+    # 🔥 WAVE (RETRY)
     ds_wave = None
     for url in [
         f"https://{user}:{password}@maritim.bmkg.go.id/opendap/ww3gfs/{YYYY}/{MM}/w3g_hires_{YYYY}{MM}{DD}_1200.nc",
         f"https://{user}:{password}@maritim.bmkg.go.id/opendap/ww3gfs/{YYYY}/{MM}/w3g_hires_{YYYY}{MM}{DD}_0000.nc",
     ]:
-        try:
-            ds_wave = xr.open_dataset(url)
+        ds_wave = open_dataset_with_retry(url)
+        if ds_wave is not None:
             break
-        except:
-            time.sleep(1)
 
+    # 🔥 CURRENT (RETRY)
     ds_cur = None
     for url in [
         f"https://{user}:{password}@maritim.bmkg.go.id/opendap/fvcom/{YYYY}/{MM}/InaFlows_{YYYY}{MM}{DD}_1200.nc",
         f"https://{user}:{password}@maritim.bmkg.go.id/opendap/fvcom/{YYYY}/{MM}/InaFlows_{YYYY}{MM}{DD}_0000.nc",
     ]:
-        try:
-            ds_cur = xr.open_dataset(url)
+        ds_cur = open_dataset_with_retry(url)
+        if ds_cur is not None:
             break
-        except:
-            time.sleep(1)
 
+    # GSMAP tetap
     ds_rain = load_gsmap_cached(dt)
 
     return ds_wave, ds_cur, ds_rain
@@ -285,7 +306,6 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
 
         t0 = dt_utc0 + timedelta(hours=i * 6)
 
-        # 🔥 SEGMENT BASED
         start_idx = int(i * (n-1) / 4)
         end_idx   = int((i+1) * (n-1) / 4) + 1
 
