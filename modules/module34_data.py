@@ -122,13 +122,40 @@ def classify_weather_from_rain(rain):
         return "Clear"
 
     elif rain < 5:
-        return "Light Rain"
+        return "Slight Rain"
 
     elif rain < 10:
         return "Moderate Rain"
 
     else:
         return "Heavy Rain"
+
+# =========================
+# 🔥 NEW: WEATHER RANGE BUILDER
+# =========================
+def build_weather_range(samples):
+
+    labels = []
+
+    for s in samples:
+        rain = s["rain"]["precip"]
+        label = classify_weather_from_rain(rain)
+        labels.append(label)
+
+    order = ["Clear", "Slight Rain", "Moderate Rain", "Heavy Rain"]
+
+    labels = [l for l in labels if l in order]
+
+    if not labels:
+        return "Clear"
+
+    min_idx = min(order.index(l) for l in labels)
+    max_idx = max(order.index(l) for l in labels)
+
+    if min_idx == max_idx:
+        return order[min_idx]
+
+    return f"{order[min_idx]} to {order[max_idx]}"
 
 
 # =========================
@@ -283,7 +310,7 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 
 
 # =========================
-# MAIN PROCESS (FIXED)
+# MAIN PROCESS (FINAL)
 # =========================
 def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain=None):
 
@@ -317,7 +344,6 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
         sample_points = generate_3_points_along_route(segment_route)
 
         samples = []
-        rain_vals = []
 
         for j, (lat, lon) in enumerate(sample_points):
 
@@ -326,16 +352,12 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
             sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
             samples.append(sample)
 
-            if sample["rain"]["precip"] is not None:
-                rain_vals.append(sample["rain"]["precip"])
-
-        rain_max = max(rain_vals) if rain_vals else None
-        weather = classify_weather_from_rain(rain_max)
+        # 🔥 WEATHER RANGE (FINAL)
+        weather = build_weather_range(samples)
 
         segments.append({
             "interval": f"T{i*6}-T{(i+1)*6}",
             "samples": samples,
-            "rain_max": rain_max,
             "weather": weather
         })
 
