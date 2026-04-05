@@ -1,5 +1,5 @@
 # =========================
-# MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED + RETRY)
+# MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED + RETRY + SMART CURRENT)
 # =========================
 
 import re
@@ -31,7 +31,7 @@ def open_dataset_with_retry(url, max_try=3, delay=2):
         try:
             ds = xr.open_dataset(url)
             return ds
-        except Exception as e:
+        except Exception:
             print(f"[Retry {i+1}] gagal buka: {url}")
             time.sleep(delay)
 
@@ -120,18 +120,16 @@ def classify_weather_from_rain(rain):
 
     if rain < 0.5:
         return "Clear"
-
     elif rain < 5:
         return "Slight Rain"
-
     elif rain < 10:
         return "Moderate Rain"
-
     else:
         return "Heavy Rain"
 
+
 # =========================
-# 🔥 NEW: WEATHER RANGE BUILDER
+# WEATHER RANGE
 # =========================
 def build_weather_range(samples):
 
@@ -196,7 +194,7 @@ def load_gsmap_cached(dt):
 
 
 # =========================
-# LOAD DATASET (RETRY VERSION)
+# LOAD DATASET
 # =========================
 @st.cache_resource(ttl=3600)
 def load_datasets_cached(dt_input):
@@ -210,7 +208,6 @@ def load_datasets_cached(dt_input):
 
     YYYY, MM, DD = dt.strftime("%Y"), dt.strftime("%m"), dt.strftime("%d")
 
-    # 🔥 WAVE (RETRY)
     ds_wave = None
     for url in [
         f"https://{user}:{password}@maritim.bmkg.go.id/opendap/ww3gfs/{YYYY}/{MM}/w3g_hires_{YYYY}{MM}{DD}_1200.nc",
@@ -220,7 +217,6 @@ def load_datasets_cached(dt_input):
         if ds_wave is not None:
             break
 
-    # 🔥 CURRENT (RETRY)
     ds_cur = None
     for url in [
         f"https://{user}:{password}@maritim.bmkg.go.id/opendap/fvcom/{YYYY}/{MM}/InaFlows_{YYYY}{MM}{DD}_1200.nc",
@@ -230,16 +226,10 @@ def load_datasets_cached(dt_input):
         if ds_cur is not None:
             break
 
-    # GSMAP tetap
     ds_rain = load_gsmap_cached(dt)
 
     return ds_wave, ds_cur, ds_rain
 
-# =========================
-# MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED + RETRY + SMART CURRENT)
-# =========================
-
-# (SEMUA KODE AWAL KAMU TETAP SAMA — TIDAK DIUBAH)
 
 # =========================
 # SAFE EXTRACT
@@ -265,9 +255,9 @@ def safe_extract(ds, var, t, lat, lon, depth=None):
 
 
 # =========================
-# 🔥 SMART CURRENT (BARU)
+# 🔥 SMART CURRENT FINAL (NO VARIABLE)
 # =========================
-def get_current_local(ds_cur, t, lat, lon):
+def get_current_local(ds_cur, t, lat, lon, window=1):
     try:
         da_u = ds_cur["u"].sel(time=t, method="nearest")
         da_v = ds_cur["v"].sel(time=t, method="nearest")
@@ -280,8 +270,8 @@ def get_current_local(ds_cur, t, lat, lon):
 
         candidates = []
 
-        for i in range(-1, 2):
-            for j in range(-1, 2):
+        for i in range(-window, window+1):
+            for j in range(-window, window+1):
                 try:
                     u = da_u.isel(lat=lat_idx+i, lon=lon_idx+j).values
                     v = da_v.isel(lat=lat_idx+i, lon=lon_idx+j).values
@@ -306,6 +296,7 @@ def get_current_local(ds_cur, t, lat, lon):
 
 def get_current_smart(ds_cur, t, lat, lon):
 
+    # 1 titik utama
     u = safe_extract(ds_cur, "u", t, lat, lon, depth=0.5)
     v = safe_extract(ds_cur, "v", t, lat, lon, depth=0.5)
 
@@ -313,11 +304,32 @@ def get_current_smart(ds_cur, t, lat, lon):
         if np.hypot(u, v) > 0.02:
             return u, v
 
-    return get_current_local(ds_cur, t, lat, lon)
+    # 3x3
+    u2, v2 = get_current_local(ds_cur, t, lat, lon, window=1)
+    if u2 is not None and v2 is not None:
+        return u2, v2
+
+    # 5x5
+    u3, v3 = get_current_local(ds_cur, t, lat, lon, window=2)
+    if u3 is not None and v3 is not None:
+        return u3, v3
+
+    # fallback terakhir (tetap data-based)
+    try:
+        da_u = ds_cur["u"].sel(time=t, method="nearest")
+        da_v = ds_cur["v"].sel(time=t, method="nearest")
+
+        u = float(da_u.sel(lat=lat, lon=lon, method="nearest").values)
+        v = float(da_v.sel(lat=lat, lon=lon, method="nearest").values)
+
+        return u, v
+
+    except:
+        return None, None
 
 
 # =========================
-# WEATHER EXTRACTION (DIUBAH DI SINI)
+# WEATHER EXTRACTION
 # =========================
 def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 
@@ -346,7 +358,7 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
         except:
             rain_val = None
 
-    # 🔥 SMART CURRENT
+    # SMART CURRENT
     u_cur, v_cur = get_current_smart(ds_cur, t, lat, lon)
 
     return {
@@ -368,8 +380,9 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
         }
     }
 
+
 # =========================
-# MAIN PROCESS (FINAL)
+# MAIN PROCESS
 # =========================
 def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain=None):
 
@@ -411,7 +424,6 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
             sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
             samples.append(sample)
 
-        # 🔥 WEATHER RANGE (FINAL)
         weather = build_weather_range(samples)
 
         segments.append({
