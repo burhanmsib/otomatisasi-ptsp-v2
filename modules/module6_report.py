@@ -3,6 +3,7 @@ from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.shared import OxmlElement, qn
 from docx.text.paragraph import Paragraph
+from docx.enum.table import WD_ALIGN_VERTICAL
 from datetime import datetime
 from io import BytesIO
 import re
@@ -206,9 +207,6 @@ def build_title(doc, row):
 
     style_paragraph(p, bold=True, align="center")
     doc.add_paragraph("")
-
-
-from docx.enum.table import WD_ALIGN_VERTICAL
 
 def build_interval_table(doc, intervals, tz="WIB"):
     headers = [
