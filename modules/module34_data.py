@@ -258,9 +258,89 @@ def safe_extract(ds, var, t, lat, lon, depth=None):
     except:
         return 0.0
 
+# =========================
+# MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED + RETRY + SMART CURRENT)
+# =========================
+
+# (SEMUA KODE AWAL KAMU TETAP SAMA — TIDAK DIUBAH)
 
 # =========================
-# WEATHER EXTRACTION
+# SAFE EXTRACT
+# =========================
+def safe_extract(ds, var, t, lat, lon, depth=None):
+
+    if ds is None or var not in ds:
+        return 0.0
+
+    try:
+        da = ds[var]
+
+        if "time" in da.dims:
+            da = da.sel(time=t, method="nearest")
+
+        if depth is not None and "depth" in da.dims:
+            da = da.sel(depth=0, method="nearest")
+
+        return float(da.sel(lat=lat, lon=lon, method="nearest").values)
+
+    except:
+        return 0.0
+
+
+# =========================
+# 🔥 SMART CURRENT (BARU)
+# =========================
+def get_current_local(ds_cur, t, lat, lon):
+    try:
+        da_u = ds_cur["u"].sel(time=t, method="nearest")
+        da_v = ds_cur["v"].sel(time=t, method="nearest")
+
+        lat_vals = da_u["lat"].values
+        lon_vals = da_u["lon"].values
+
+        lat_idx = np.abs(lat_vals - lat).argmin()
+        lon_idx = np.abs(lon_vals - lon).argmin()
+
+        candidates = []
+
+        for i in range(-1, 2):
+            for j in range(-1, 2):
+                try:
+                    u = da_u.isel(lat=lat_idx+i, lon=lon_idx+j).values
+                    v = da_v.isel(lat=lat_idx+i, lon=lon_idx+j).values
+
+                    if np.isnan(u) or np.isnan(v):
+                        continue
+
+                    spd = np.hypot(u, v)
+                    candidates.append((spd, u, v))
+                except:
+                    continue
+
+        if not candidates:
+            return None, None
+
+        _, best_u, best_v = max(candidates)
+        return best_u, best_v
+
+    except:
+        return None, None
+
+
+def get_current_smart(ds_cur, t, lat, lon):
+
+    u = safe_extract(ds_cur, "u", t, lat, lon, depth=0.5)
+    v = safe_extract(ds_cur, "v", t, lat, lon, depth=0.5)
+
+    if u is not None and v is not None:
+        if np.hypot(u, v) > 0.02:
+            return u, v
+
+    return get_current_local(ds_cur, t, lat, lon)
+
+
+# =========================
+# WEATHER EXTRACTION (DIUBAH DI SINI)
 # =========================
 def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 
@@ -289,6 +369,9 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
         except:
             rain_val = None
 
+    # 🔥 SMART CURRENT
+    u_cur, v_cur = get_current_smart(ds_cur, t, lat, lon)
+
     return {
         "wave": {
             "hs": safe_extract(ds_wave,"hs",t,lat,lon),
@@ -300,14 +383,13 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
             "v": safe_extract(ds_wave,"vwnd",t,lat,lon)
         },
         "current": {
-            "u": safe_extract(ds_cur,"u",t,lat,lon,depth=0.5),
-            "v": safe_extract(ds_cur,"v",t,lat,lon,depth=0.5)
+            "u": u_cur,
+            "v": v_cur
         },
         "rain": {
             "precip": rain_val
         }
     }
-
 
 # =========================
 # MAIN PROCESS (FINAL)
