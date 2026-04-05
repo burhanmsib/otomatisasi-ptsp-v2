@@ -248,27 +248,32 @@ def build_interval_table(doc, intervals, tz="WIB"):
             style_paragraph(cell.paragraphs[0], align="center")
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-        # =========================
-        # MERGE DATE + CENTER
-        # =========================
-        if intervals:
-            date_text = intervals[0].get("DATE", "")
-        
-            start_cell = table.cell(1, 0)
-            end_cell = table.cell(4, 0)
-        
-            merged_cell = start_cell.merge(end_cell)
-            merged_cell.text = date_text
-        
-            # Center horizontal
-            style_paragraph(merged_cell.paragraphs[0], align="center")
-        
-            # Bold (dipisah dari style_paragraph)
-            if merged_cell.paragraphs[0].runs:
-                merged_cell.paragraphs[0].runs[0].bold = True
-        
-            # Center vertical
-            merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            # =========================
+            # MERGE DATE + CENTER (SAFE)
+            # =========================
+            if intervals and len(table.rows) > 1:
+            
+                date_text = intervals[0].get("DATE", "")
+            
+                # row pertama setelah header = index 1
+                start_row = 1
+                end_row = len(table.rows) - 1  # terakhir
+            
+                start_cell = table.cell(start_row, 0)
+                end_cell = table.cell(end_row, 0)
+            
+                merged_cell = start_cell.merge(end_cell)
+                merged_cell.text = date_text
+            
+                # Center horizontal
+                style_paragraph(merged_cell.paragraphs[0], align="center")
+            
+                # Bold
+                if merged_cell.paragraphs[0].runs:
+                    merged_cell.paragraphs[0].runs[0].bold = True
+            
+                # Center vertical
+                merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
 
 def build_notes_primary(doc):
