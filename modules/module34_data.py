@@ -257,75 +257,67 @@ def safe_extract(ds, var, t, lat, lon, depth=None):
 # =========================
 # 🔥 SMART CURRENT FINAL (NO VARIABLE)
 # =========================
-def get_current_local(ds_cur, t, lat, lon, window=1):
-    try:
-        da_u = ds_cur["u"].sel(time=t, method="nearest")
-        da_v = ds_cur["v"].sel(time=t, method="nearest")
+def get_current_local(da_u, da_v, lat, lon, window=1):
 
-        lat_vals = da_u["lat"].values
-        lon_vals = da_u["lon"].values
+    lat_vals = da_u["lat"].values
+    lon_vals = da_u["lon"].values
 
-        lat_idx = np.abs(lat_vals - lat).argmin()
-        lon_idx = np.abs(lon_vals - lon).argmin()
+    lat_idx = np.abs(lat_vals - lat).argmin()
+    lon_idx = np.abs(lon_vals - lon).argmin()
 
-        candidates = []
+    best = None
+    max_spd = 0
 
-        for i in range(-window, window+1):
-            for j in range(-window, window+1):
-                try:
-                    u = da_u.isel(lat=lat_idx+i, lon=lon_idx+j).values
-                    v = da_v.isel(lat=lat_idx+i, lon=lon_idx+j).values
+    for i in range(-window, window+1):
+        for j in range(-window, window+1):
+            try:
+                u = da_u.isel(lat=lat_idx+i, lon=lon_idx+j).values
+                v = da_v.isel(lat=lat_idx+i, lon=lon_idx+j).values
 
-                    if np.isnan(u) or np.isnan(v):
-                        continue
-
-                    spd = np.hypot(u, v)
-                    candidates.append((spd, u, v))
-                except:
+                if np.isnan(u) or np.isnan(v):
                     continue
 
-        if not candidates:
-            return None, None
+                spd = np.hypot(u, v)
 
-        _, best_u, best_v = max(candidates)
-        return best_u, best_v
+                if spd > max_spd:
+                    max_spd = spd
+                    best = (u, v)
 
-    except:
-        return None, None
+            except:
+                continue
+
+    return best if best else (None, None)
 
 
 def get_current_smart(ds_cur, t, lat, lon):
 
-    # 1 titik utama
-    u = safe_extract(ds_cur, "u", t, lat, lon, depth=0.5)
-    v = safe_extract(ds_cur, "v", t, lat, lon, depth=0.5)
-
-    if u is not None and v is not None:
-        if np.hypot(u, v) > 0.02:
-            return u, v
-
-    # 3x3
-    u2, v2 = get_current_local(ds_cur, t, lat, lon, window=1)
-    if u2 is not None and v2 is not None:
-        return u2, v2
-
-    # 5x5
-    u3, v3 = get_current_local(ds_cur, t, lat, lon, window=2)
-    if u3 is not None and v3 is not None:
-        return u3, v3
-
-    # fallback terakhir (tetap data-based)
     try:
         da_u = ds_cur["u"].sel(time=t, method="nearest")
         da_v = ds_cur["v"].sel(time=t, method="nearest")
+    except:
+        return None, None
 
+    # titik utama
+    try:
         u = float(da_u.sel(lat=lat, lon=lon, method="nearest").values)
         v = float(da_v.sel(lat=lat, lon=lon, method="nearest").values)
 
-        return u, v
-
+        if np.hypot(u, v) > 0.02:
+            return u, v
     except:
-        return None, None
+        pass
+
+    # 3x3
+    u2, v2 = get_current_local(da_u, da_v, lat, lon, 1)
+    if u2 is not None:
+        return u2, v2
+
+    # 5x5
+    u3, v3 = get_current_local(da_u, da_v, lat, lon, 2)
+    if u3 is not None:
+        return u3, v3
+
+    return None, None
 
 
 # =========================
