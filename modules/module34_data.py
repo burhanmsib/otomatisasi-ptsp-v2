@@ -235,29 +235,6 @@ def load_datasets_cached(dt_input):
 
     return ds_wave, ds_cur, ds_rain
 
-
-# =========================
-# SAFE EXTRACT
-# =========================
-def safe_extract(ds, var, t, lat, lon, depth=None):
-
-    if ds is None or var not in ds:
-        return 0.0
-
-    try:
-        da = ds[var]
-
-        if "time" in da.dims:
-            da = da.sel(time=t, method="nearest")
-
-        if depth is not None and "depth" in da.dims:
-            da = da.sel(depth=0, method="nearest")
-
-        return float(da.sel(lat=lat, lon=lon, method="nearest").values)
-
-    except:
-        return 0.0
-
 # =========================
 # MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED + RETRY + SMART CURRENT)
 # =========================
