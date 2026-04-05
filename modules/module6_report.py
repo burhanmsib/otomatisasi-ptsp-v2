@@ -248,25 +248,27 @@ def build_interval_table(doc, intervals, tz="WIB"):
             style_paragraph(cell.paragraphs[0], align="center")
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-    # =========================
-    # MERGE DATE + CENTER
-    # =========================
-    if intervals:
-        date_text = intervals[0].get("DATE", "")
-
-        start_cell = table.cell(1, 0)
-        end_cell = table.cell(4, 0)
-
-        merged_cell = start_cell.merge(end_cell)
-        merged_cell.text = date_text
-
-        # Center horizontal
-        style_paragraph(merged_cell.paragraphs[0].runs[0].bold = True, align="center")
-
-        # Center vertical (INI YANG KAMU MAU 🔥)
-        merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-    doc.add_paragraph("")
+        # =========================
+        # MERGE DATE + CENTER
+        # =========================
+        if intervals:
+            date_text = intervals[0].get("DATE", "")
+        
+            start_cell = table.cell(1, 0)
+            end_cell = table.cell(4, 0)
+        
+            merged_cell = start_cell.merge(end_cell)
+            merged_cell.text = date_text
+        
+            # Center horizontal
+            style_paragraph(merged_cell.paragraphs[0], align="center")
+        
+            # Bold (dipisah dari style_paragraph)
+            if merged_cell.paragraphs[0].runs:
+                merged_cell.paragraphs[0].runs[0].bold = True
+        
+            # Center vertical
+            merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
 
 def build_notes_primary(doc):
