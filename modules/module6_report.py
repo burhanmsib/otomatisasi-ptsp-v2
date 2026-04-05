@@ -208,6 +208,8 @@ def build_title(doc, row):
     doc.add_paragraph("")
 
 
+from docx.enum.table import WD_ALIGN_VERTICAL
+
 def build_interval_table(doc, intervals, tz="WIB"):
     headers = [
         "DATE", f"LOCAL TIME ({tz})", "WEATHER",
@@ -218,15 +220,22 @@ def build_interval_table(doc, intervals, tz="WIB"):
     table = doc.add_table(rows=1, cols=7)
     set_table_border(table)
 
+    # HEADER
     for i, h in enumerate(headers):
-        table.rows[0].cells[i].text = h
-        style_paragraph(table.rows[0].cells[i].paragraphs[0], bold=True, align="center")
+        cell = table.rows[0].cells[i]
+        cell.text = h
+        style_paragraph(cell.paragraphs[0], bold=True, align="center")
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
+    # =========================
+    # ADD DATA ROWS
+    # =========================
     for j in range(4):
         data = intervals[j] if j < len(intervals) else {}
         row = table.add_row().cells
+
         values = [
-            data.get("DATE", ""),
+            "",  # DATE dikosongkan dulu
             data.get("LOCAL TIME", ""),
             data.get("WEATHER", ""),
             data.get("WIND", ""),
@@ -234,9 +243,30 @@ def build_interval_table(doc, intervals, tz="WIB"):
             data.get("WAVE", ""),
             data.get("BEAUFORT", ""),
         ]
+
         for i, v in enumerate(values):
-            row[i].text = str(v)
-            style_paragraph(row[i].paragraphs[0], align="center")
+            cell = row[i]
+            cell.text = str(v)
+            style_paragraph(cell.paragraphs[0], align="center")
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+    # =========================
+    # MERGE DATE + CENTER
+    # =========================
+    if intervals:
+        date_text = intervals[0].get("DATE", "")
+
+        start_cell = table.cell(1, 0)
+        end_cell = table.cell(4, 0)
+
+        merged_cell = start_cell.merge(end_cell)
+        merged_cell.text = date_text
+
+        # Center horizontal
+        style_paragraph(merged_cell.paragraphs[0].runs[0].bold = True, align="center")
+
+        # Center vertical (INI YANG KAMU MAU 🔥)
+        merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     doc.add_paragraph("")
 
