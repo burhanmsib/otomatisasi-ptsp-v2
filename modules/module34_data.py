@@ -1,5 +1,5 @@
 # =========================
-# MODULE 3 + 4 (FINAL COMPLETE - SEGMENT FIXED + RETRY + SMART CURRENT)
+# MODULE 3 + 4 (FINAL COMPLETE - SUPER FAST CURRENT OPTIMIZED)
 # =========================
 
 import re
@@ -26,7 +26,6 @@ os.environ["OPENDAP_TIMEOUT"] = "60"
 # 🔥 TAMBAHAN: RETRY FUNCTION
 # =========================
 def open_dataset_with_retry(url, max_try=3, delay=2):
-
     for i in range(max_try):
         try:
             ds = xr.open_dataset(url)
@@ -34,7 +33,6 @@ def open_dataset_with_retry(url, max_try=3, delay=2):
         except Exception:
             print(f"[Retry {i+1}] gagal buka: {url}")
             time.sleep(delay)
-
     return None
 
 
@@ -52,12 +50,10 @@ TZ_OFFSET = {
 # DATE NORMALIZATION
 # =========================
 def normalize_date(raw):
-
     if raw is None or str(raw).strip() == "":
         return None
 
     s = str(raw)
-
     s = re.sub(r"\d{1,2}[.:]\d{2}(-\d{1,2}[.:]\d{2})?", "", s)
     s = s.replace("/", " ")
 
@@ -94,7 +90,6 @@ def normalize_date(raw):
 # ROUTE SAMPLING
 # =========================
 def generate_3_points_along_route(polyline):
-
     if not polyline or len(polyline) < 2:
         return polyline
 
@@ -114,7 +109,6 @@ def generate_3_points_along_route(polyline):
 # WEATHER CLASSIFICATION
 # =========================
 def classify_weather_from_rain(rain):
-
     if rain is None:
         return "Unknown"
 
@@ -132,16 +126,13 @@ def classify_weather_from_rain(rain):
 # WEATHER RANGE
 # =========================
 def build_weather_range(samples):
-
     labels = []
-
     for s in samples:
         rain = s["rain"]["precip"]
         label = classify_weather_from_rain(rain)
         labels.append(label)
 
     order = ["Clear", "Slight Rain", "Moderate Rain", "Heavy Rain"]
-
     labels = [l for l in labels if l in order]
 
     if not labels:
@@ -161,7 +152,6 @@ def build_weather_range(samples):
 # =========================
 @st.cache_resource(ttl=3600)
 def load_gsmap_cached(dt):
-
     try:
         ftp_host = st.secrets["ftp"]["host"]
         ftp_user = st.secrets["ftp"]["user"]
@@ -198,7 +188,6 @@ def load_gsmap_cached(dt):
 # =========================
 @st.cache_resource(ttl=3600)
 def load_datasets_cached(dt_input):
-
     dt = normalize_date(dt_input)
     if dt is None:
         return None, None, None
@@ -235,96 +224,73 @@ def load_datasets_cached(dt_input):
 # SAFE EXTRACT
 # =========================
 def safe_extract(ds, var, t, lat, lon, depth=None):
-
     if ds is None or var not in ds:
         return 0.0
-
     try:
         da = ds[var]
-
         if "time" in da.dims:
             da = da.sel(time=t, method="nearest")
-
         if depth is not None and "depth" in da.dims:
             da = da.sel(depth=0, method="nearest")
-
         return float(da.sel(lat=lat, lon=lon, method="nearest").values)
-
     except:
         return 0.0
 
 
 # =========================
-# 🔥 SMART CURRENT FINAL (NO VARIABLE)
+# 🔥 SMART CURRENT FINAL (SUPER FAST OPTIMIZED)
 # =========================
-def get_current_local(da_u, da_v, lat, lon, window=1):
-
-    lat_vals = da_u["lat"].values
-    lon_vals = da_u["lon"].values
-
-    lat_idx = np.abs(lat_vals - lat).argmin()
-    lon_idx = np.abs(lon_vals - lon).argmin()
-
-    best = None
-    max_spd = 0
-
-    for i in range(-window, window+1):
-        for j in range(-window, window+1):
-            try:
-                u = da_u.isel(lat=lat_idx+i, lon=lon_idx+j).values
-                v = da_v.isel(lat=lat_idx+i, lon=lon_idx+j).values
-
-                if np.isnan(u) or np.isnan(v):
-                    continue
-
-                spd = np.hypot(u, v)
-
-                if spd > max_spd:
-                    max_spd = spd
-                    best = (u, v)
-
-            except:
-                continue
-
-    return best if best else (None, None)
-
-
-def get_current_smart(ds_cur, t, lat, lon):
-
+def get_current_smart(ds_cur, t, lat, lon, max_window=2):
     try:
+        # 1. Pilih waktu terdekat
         da_u = ds_cur["u"].sel(time=t, method="nearest")
         da_v = ds_cur["v"].sel(time=t, method="nearest")
-    except:
+        
+        # 2. Cari index latitude dan longitude terdekat
+        lat_vals = da_u["lat"].values
+        lon_vals = da_u["lon"].values
+        
+        lat_idx = np.abs(lat_vals - lat).argmin()
+        lon_idx = np.abs(lon_vals - lon).argmin()
+        
+        # 3. BATCH FETCHING: Tarik sekotak area (misal 5x5) SEKALIGUS
+        lat_slice = slice(max(0, lat_idx - max_window), lat_idx + max_window + 1)
+        lon_slice = slice(max(0, lon_idx - max_window), lon_idx + max_window + 1)
+        
+        u_grid = da_u.isel(lat=lat_slice, lon=lon_slice).values
+        v_grid = da_v.isel(lat=lat_slice, lon=lon_slice).values
+        
+        # 4. Tentukan posisi titik utama di dalam kotak grid yang ditarik
+        center_i = min(lat_idx, max_window) 
+        center_j = min(lon_idx, max_window)
+        
+        # 5. Cek titik utama terlebih dahulu
+        u_center, v_center = u_grid[center_i, center_j], v_grid[center_i, center_j]
+        if not np.isnan(u_center) and not np.isnan(v_center):
+            return float(u_center), float(v_center)
+        
+        # 6. Jika titik utama NaN (Kena daratan), hitung semua titik di grid
+        spd_grid = np.hypot(u_grid, v_grid)
+        
+        # Cek apakah seluruh area kotak ini NaN (daratan total)
+        if np.all(np.isnan(spd_grid)):
+            return None, None
+            
+        # 7. Ambil kecepatan arus tertinggi di area sekitar titik utama
+        max_idx = np.unravel_index(np.nanargmax(spd_grid), spd_grid.shape)
+        u_best = u_grid[max_idx]
+        v_best = v_grid[max_idx]
+        
+        return float(u_best), float(v_best)
+        
+    except Exception:
         return None, None
-
-    # titik utama
-    try:
-        u = float(da_u.sel(lat=lat, lon=lon, method="nearest").values)
-        v = float(da_v.sel(lat=lat, lon=lon, method="nearest").values)
-
-        if np.hypot(u, v) > 0.02:
-            return u, v
-    except:
-        pass
-
-    # 3x3
-    u2, v2 = get_current_local(da_u, da_v, lat, lon, 1)
-    if u2 is not None:
-        return u2, v2
-
-    # 5x5
-    u3, v3 = get_current_local(da_u, da_v, lat, lon, 2)
-    if u3 is not None:
-        return u3, v3
-
-    return None, None
 
 
 # =========================
 # WEATHER EXTRACTION
 # =========================
 def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
-
     rain_val = None
 
     if ds_rain is not None:
@@ -377,7 +343,6 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 # MAIN PROCESS
 # =========================
 def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain=None):
-
     dt_local = normalize_date(row["Tanggal Koordinat"])
     if dt_local is None:
         return None
@@ -394,7 +359,6 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
     n = len(route)
 
     for i in range(4):
-
         t0 = dt_utc0 + timedelta(hours=i * 6)
 
         start_idx = int(i * (n-1) / 4)
@@ -410,7 +374,6 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
         samples = []
 
         for j, (lat, lon) in enumerate(sample_points):
-
             t = t0 + timedelta(hours=j * 3)
 
             sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
