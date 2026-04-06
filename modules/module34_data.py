@@ -224,21 +224,27 @@ def load_datasets_cached(dt_input):
 # SAFE EXTRACT
 # =========================
 def safe_extract(ds, var, t, lat, lon, depth=None):
+
     if ds is None or var not in ds:
         return 0.0
+
     try:
         da = ds[var]
+
         if "time" in da.dims:
             da = da.sel(time=t, method="nearest")
+
         if depth is not None and "depth" in da.dims:
             da = da.sel(depth=0, method="nearest")
+
         return float(da.sel(lat=lat, lon=lon, method="nearest").values)
+
     except:
         return 0.0
 
 
 # =========================
-# 🔥 SMART CURRENT (HYBRID)
+# 🔥 SMART CURRENT (BARU)
 # =========================
 def get_current_local(ds_cur, t, lat, lon):
     try:
@@ -278,17 +284,19 @@ def get_current_local(ds_cur, t, lat, lon):
 
 
 def get_current_smart(ds_cur, t, lat, lon):
-    u = safe_extract(ds_cur, "u", t, lat, lon)
-    v = safe_extract(ds_cur, "v", t, lat, lon)
 
-    if u and v:
+    u = safe_extract(ds_cur, "u", t, lat, lon, depth=0.5)
+    v = safe_extract(ds_cur, "v", t, lat, lon, depth=0.5)
+
+    if u is not None and v is not None:
         if np.hypot(u, v) > 0.02:
             return u, v
 
     return get_current_local(ds_cur, t, lat, lon)
 
+
 # =========================
-# WEATHER EXTRACTION
+# WEATHER EXTRACTION (DIUBAH DI SINI)
 # =========================
 def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
 
@@ -297,17 +305,25 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
     if ds_rain is not None:
         try:
             var = list(ds_rain.data_vars)[0]
-            da = ds_rain[var].sel(time=t, method="nearest")
+            da = ds_rain[var]
 
-            lat_name = "lat" if "lat" in da.coords else "latitude"
-            lon_name = "lon" if "lon" in da.coords else "longitude"
+            if "time" in da.dims:
+                da = da.sel(time=t, method="nearest")
 
-            lat_idx = np.abs(da[lat_name].values - lat).argmin()
-            lon_idx = np.abs(da[lon_name].values - lon).argmin()
+            lat_name = next((n for n in ["lat","latitude"] if n in da.coords), None)
+            lon_name = next((n for n in ["lon","longitude"] if n in da.coords), None)
 
-            rain_val = float(da.isel({lat_name: lat_idx, lon_name: lon_idx}).values)
+            if lat_name and lon_name:
+                lat_idx = np.abs(da[lat_name].values - lat).argmin()
+                lon_idx = np.abs(da[lon_name].values - lon).argmin()
+
+                rain_val = float(da.isel({lat_name: lat_idx, lon_name: lon_idx}).values)
+
+                if np.isnan(rain_val):
+                    rain_val = None
+
         except:
-            pass
+            rain_val = None
 
     # 🔥 SMART CURRENT
     u_cur, v_cur = get_current_smart(ds_cur, t, lat, lon)
@@ -330,7 +346,6 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
             "precip": rain_val
         }
     }
-
 # =========================
 # MAIN PROCESS
 # =========================
