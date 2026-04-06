@@ -238,89 +238,78 @@ def safe_extract(ds, var, t, lat, lon, depth=None):
 
 
 # =========================
-# 🔥 SMART CURRENT FINAL (SUPER FAST & BUG FREE)
+# 🔥 SMART CURRENT (HYBRID)
 # =========================
-def get_current_smart(ds_cur, t, lat, lon, max_window=2):
+def get_current_local(ds_cur, t, lat, lon):
     try:
-        # 1. Pilih waktu terdekat
         da_u = ds_cur["u"].sel(time=t, method="nearest")
         da_v = ds_cur["v"].sel(time=t, method="nearest")
-        
-        # 2. Cari index latitude dan longitude terdekat
+
         lat_vals = da_u["lat"].values
         lon_vals = da_u["lon"].values
-        
-        lat_idx = int(np.abs(lat_vals - lat).argmin())
-        lon_idx = int(np.abs(lon_vals - lon).argmin())
-        
-        # 3. Cek titik utama terlebih dahulu (Aman dari dimensi tersembunyi)
-        u_center = float(da_u.isel(lat=lat_idx, lon=lon_idx).values)
-        v_center = float(da_v.isel(lat=lat_idx, lon=lon_idx).values)
-        spd_center = np.hypot(u_center, v_center)
-        
-        # KUNCI PERBAIKAN: Daratan di model BMKG kadang bernilai 0, bukan NaN.
-        # Jika arus sangat kecil (< 0.02 m/s), abaikan dan anggap sebagai daratan.
-        if not np.isnan(spd_center) and spd_center > 0.02:
-            return u_center, v_center
-        
-        # 4. Jika titik utama adalah daratan (0/NaN), BATCH FETCHING grid sekitarnya
-        lat_slice = slice(max(0, lat_idx - max_window), lat_idx + max_window + 1)
-        lon_slice = slice(max(0, lon_idx - max_window), lon_idx + max_window + 1)
-        
-        u_grid = da_u.isel(lat=lat_slice, lon=lon_slice).values
-        v_grid = da_v.isel(lat=lat_slice, lon=lon_slice).values
-        
-        spd_grid = np.hypot(u_grid, v_grid)
-        
-        if np.all(np.isnan(spd_grid)):
+
+        lat_idx = np.abs(lat_vals - lat).argmin()
+        lon_idx = np.abs(lon_vals - lon).argmin()
+
+        candidates = []
+
+        for i in range(-1, 2):
+            for j in range(-1, 2):
+                try:
+                    u = da_u.isel(lat=lat_idx+i, lon=lon_idx+j).values
+                    v = da_v.isel(lat=lat_idx+i, lon=lon_idx+j).values
+
+                    if np.isnan(u) or np.isnan(v):
+                        continue
+
+                    spd = np.hypot(u, v)
+                    candidates.append((spd, u, v))
+                except:
+                    continue
+
+        if not candidates:
             return None, None
-            
-        # 5. Cari kecepatan laut terbesar di dalam grid 
-        # (menggunakan flatten agar 100% anti-error terhadap dimensi depth)
-        max_flat_idx = np.nanargmax(spd_grid)
-        u_best = float(u_grid.flatten()[max_flat_idx])
-        v_best = float(v_grid.flatten()[max_flat_idx])
-        
-        # Pastikan nilai terbaik di sekitarnya bukan 0 juga
-        if np.hypot(u_best, v_best) == 0:
-            return None, None
-            
-        return u_best, v_best
-        
-    except Exception as e:
-        # st.write(f"Error debug: {e}") # Buka komen ini jika sewaktu-waktu butuh debug
+
+        _, best_u, best_v = max(candidates)
+        return best_u, best_v
+
+    except:
         return None, None
+
+
+def get_current_smart(ds_cur, t, lat, lon):
+    u = safe_extract(ds_cur, "u", t, lat, lon)
+    v = safe_extract(ds_cur, "v", t, lat, lon)
+
+    if u and v:
+        if np.hypot(u, v) > 0.02:
+            return u, v
+
+    return get_current_local(ds_cur, t, lat, lon)
 
 # =========================
 # WEATHER EXTRACTION
 # =========================
 def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
+
     rain_val = None
 
     if ds_rain is not None:
         try:
             var = list(ds_rain.data_vars)[0]
-            da = ds_rain[var]
+            da = ds_rain[var].sel(time=t, method="nearest")
 
-            if "time" in da.dims:
-                da = da.sel(time=t, method="nearest")
+            lat_name = "lat" if "lat" in da.coords else "latitude"
+            lon_name = "lon" if "lon" in da.coords else "longitude"
 
-            lat_name = next((n for n in ["lat","latitude"] if n in da.coords), None)
-            lon_name = next((n for n in ["lon","longitude"] if n in da.coords), None)
+            lat_idx = np.abs(da[lat_name].values - lat).argmin()
+            lon_idx = np.abs(da[lon_name].values - lon).argmin()
 
-            if lat_name and lon_name:
-                lat_idx = np.abs(da[lat_name].values - lat).argmin()
-                lon_idx = np.abs(da[lon_name].values - lon).argmin()
-
-                rain_val = float(da.isel({lat_name: lat_idx, lon_name: lon_idx}).values)
-
-                if np.isnan(rain_val):
-                    rain_val = None
-
+            rain_val = float(da.isel({lat_name: lat_idx, lon_name: lon_idx}).values)
         except:
-            rain_val = None
+            pass
 
-    # SMART CURRENT
+    # 🔥 SMART CURRENT
     u_cur, v_cur = get_current_smart(ds_cur, t, lat, lon)
 
     return {
@@ -342,11 +331,11 @@ def extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon):
         }
     }
 
-
 # =========================
 # MAIN PROCESS
 # =========================
 def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain=None):
+
     dt_local = normalize_date(row["Tanggal Koordinat"])
     if dt_local is None:
         return None
@@ -358,7 +347,6 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
     ).astimezone(timezone.utc).replace(tzinfo=None)
 
     route = [(p[0], p[1]) for p in polyline]
-
     segments = []
     n = len(route)
 
@@ -369,26 +357,20 @@ def process_module34(row, polyline, tz="WIB", ds_wave=None, ds_cur=None, ds_rain
         end_idx   = int((i+1) * (n-1) / 4) + 1
 
         segment_route = route[start_idx:end_idx]
-
         if len(segment_route) < 2:
             segment_route = route
 
         sample_points = generate_3_points_along_route(segment_route)
 
         samples = []
-
         for j, (lat, lon) in enumerate(sample_points):
             t = t0 + timedelta(hours=j * 3)
-
-            sample = extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon)
-            samples.append(sample)
-
-        weather = build_weather_range(samples)
+            samples.append(extract_hourly_weather(ds_wave, ds_cur, ds_rain, t, lat, lon))
 
         segments.append({
             "interval": f"T{i*6}-T{(i+1)*6}",
             "samples": samples,
-            "weather": weather
+            "weather": build_weather_range(samples)
         })
 
     return {
