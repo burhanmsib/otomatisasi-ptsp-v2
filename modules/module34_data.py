@@ -238,7 +238,7 @@ def safe_extract(ds, var, t, lat, lon, depth=None):
 
 
 # =========================
-# 🔥 SMART CURRENT FINAL (SUPER FAST OPTIMIZED)
+# 🔥 SMART CURRENT FINAL (SUPER FAST & BUG FREE)
 # =========================
 def get_current_smart(ds_cur, t, lat, lon, max_window=2):
     try:
@@ -250,42 +250,46 @@ def get_current_smart(ds_cur, t, lat, lon, max_window=2):
         lat_vals = da_u["lat"].values
         lon_vals = da_u["lon"].values
         
-        lat_idx = np.abs(lat_vals - lat).argmin()
-        lon_idx = np.abs(lon_vals - lon).argmin()
+        lat_idx = int(np.abs(lat_vals - lat).argmin())
+        lon_idx = int(np.abs(lon_vals - lon).argmin())
         
-        # 3. BATCH FETCHING: Tarik sekotak area (misal 5x5) SEKALIGUS
+        # 3. Cek titik utama terlebih dahulu (Aman dari dimensi tersembunyi)
+        u_center = float(da_u.isel(lat=lat_idx, lon=lon_idx).values)
+        v_center = float(da_v.isel(lat=lat_idx, lon=lon_idx).values)
+        spd_center = np.hypot(u_center, v_center)
+        
+        # KUNCI PERBAIKAN: Daratan di model BMKG kadang bernilai 0, bukan NaN.
+        # Jika arus sangat kecil (< 0.02 m/s), abaikan dan anggap sebagai daratan.
+        if not np.isnan(spd_center) and spd_center > 0.02:
+            return u_center, v_center
+        
+        # 4. Jika titik utama adalah daratan (0/NaN), BATCH FETCHING grid sekitarnya
         lat_slice = slice(max(0, lat_idx - max_window), lat_idx + max_window + 1)
         lon_slice = slice(max(0, lon_idx - max_window), lon_idx + max_window + 1)
         
         u_grid = da_u.isel(lat=lat_slice, lon=lon_slice).values
         v_grid = da_v.isel(lat=lat_slice, lon=lon_slice).values
         
-        # 4. Tentukan posisi titik utama di dalam kotak grid yang ditarik
-        center_i = min(lat_idx, max_window) 
-        center_j = min(lon_idx, max_window)
-        
-        # 5. Cek titik utama terlebih dahulu
-        u_center, v_center = u_grid[center_i, center_j], v_grid[center_i, center_j]
-        if not np.isnan(u_center) and not np.isnan(v_center):
-            return float(u_center), float(v_center)
-        
-        # 6. Jika titik utama NaN (Kena daratan), hitung semua titik di grid
         spd_grid = np.hypot(u_grid, v_grid)
         
-        # Cek apakah seluruh area kotak ini NaN (daratan total)
         if np.all(np.isnan(spd_grid)):
             return None, None
             
-        # 7. Ambil kecepatan arus tertinggi di area sekitar titik utama
-        max_idx = np.unravel_index(np.nanargmax(spd_grid), spd_grid.shape)
-        u_best = u_grid[max_idx]
-        v_best = v_grid[max_idx]
+        # 5. Cari kecepatan laut terbesar di dalam grid 
+        # (menggunakan flatten agar 100% anti-error terhadap dimensi depth)
+        max_flat_idx = np.nanargmax(spd_grid)
+        u_best = float(u_grid.flatten()[max_flat_idx])
+        v_best = float(v_grid.flatten()[max_flat_idx])
         
-        return float(u_best), float(v_best)
+        # Pastikan nilai terbaik di sekitarnya bukan 0 juga
+        if np.hypot(u_best, v_best) == 0:
+            return None, None
+            
+        return u_best, v_best
         
-    except Exception:
+    except Exception as e:
+        # st.write(f"Error debug: {e}") # Buka komen ini jika sewaktu-waktu butuh debug
         return None, None
-
 
 # =========================
 # WEATHER EXTRACTION
